@@ -43,6 +43,8 @@ td { color: #2d3436; }
 .btn-sm { padding: 4px 10px; font-size: 11px; border-radius: 6px; }
 .btn-outline { background: none; border: 1.5px solid #0984e3; color: #0984e3; }
 .btn-outline:hover { background: #e8f4fd; }
+.btn-danger { background: none; border: 1.5px solid #d63031; color: #d63031; }
+.btn-danger:hover { background: #ffeaea; }
 .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 .loading { text-align: center; padding: 40px; color: #636e72; }
 .error { color: #d63031; padding: 20px; text-align: center; }
@@ -218,6 +220,7 @@ function renderDashboard() {
       <td>
         <button class="btn btn-sm btn-outline" onclick="downloadOneJSON('${pid}')">JSON</button>
         <button class="btn btn-sm btn-outline" onclick="downloadOneCSV('${pid}')">CSV</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteOne('${pid}')">🗑</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -237,6 +240,19 @@ function downloadOneCSV(pid) {
   if (!d || !d.trialData || d.trialData.length === 0) return;
   const csv = trialsToCSV(d.trialData);
   downloadFile(`trial_data_${pid}.csv`, csv, 'text/csv');
+}
+
+function deleteOne(pid) {
+  if (!confirm(`Delete all data for ${pid}? This cannot be undone.`)) return;
+  
+  db.ref('participants/' + pid).remove()
+    .then(() => {
+      delete allData[pid];
+      renderDashboard();
+    })
+    .catch(err => {
+      alert('Delete failed: ' + err.message);
+    });
 }
 
 function downloadAllJSON() {
