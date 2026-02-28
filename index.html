@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Marking Menu Input Technique – Mobile HCI Prototype</title>
+
+<!-- Firebase SDK (loaded from CDN in participant's browser) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script>
+  // ⚠️ REPLACE with your Firebase project config ⚠️
+  // Steps: Firebase Console → Project Settings → General → Your apps → Web app → Config
+  const firebaseConfig = {
+    apiKey: "AIzaSyAn9gcKCZJkRRCwR6Jla5y3BiMjrcrsQLM",
+    authDomain: "marking-menu-study.firebaseapp.com",
+    databaseURL: "https://marking-menu-study-default-rtdb.firebaseio.com",
+    projectId: "marking-menu-study",
+    storageBucket: "marking-menu-study.firebasestorage.app",
+    messagingSenderId: "645934801406",
+    appId: "1:645934801406:web:e68f87da1ff4c06b21e0af"
+  };
+  let firebaseReady = false;
+  try {
+    firebase.initializeApp(firebaseConfig);
+    firebaseReady = !firebaseConfig.apiKey.startsWith('YOUR_');
+  } catch (e) { console.warn('Firebase init failed:', e); }
+</script>
+
+<style>
+/* ========== RESET & BASE ========== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { 
+  width: 100%; height: 100%; overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f5f6fa; color: #2d3436; touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ========== SCREENS ========== */
+.screen { display: none; width: 100%; height: 100%; flex-direction: column; }
+.screen.active { display: flex; }
+
+/* ========== WELCOME SCREEN ========== */
+#welcome { justify-content: center; align-items: center; padding: 24px; }
+#welcome h1 { font-size: 22px; margin-bottom: 8px; text-align: center; color: #0984e3; }
+#welcome p { font-size: 14px; color: #636e72; text-align: center; margin-bottom: 20px; line-height: 1.5; }
+.form-group { margin-bottom: 16px; width: 100%; max-width: 320px; }
+.form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #2d3436; }
+.form-group input, .form-group select {
+  width: 100%; padding: 12px; border: 2px solid #dfe6e9; border-radius: 10px;
+  font-size: 16px; outline: none; transition: border-color .2s;
+}
+.form-group input:focus, .form-group select:focus { border-color: #0984e3; }
+.btn {
+  display: inline-block; padding: 14px 32px; border: none; border-radius: 12px;
+  font-size: 16px; font-weight: 600; cursor: pointer; transition: all .2s;
+  text-align: center;
+}
+.btn-primary { background: #0984e3; color: #fff; }
+.btn-primary:active { background: #0652DD; transform: scale(0.97); }
+.btn-secondary { background: #dfe6e9; color: #2d3436; }
+.btn-secondary:active { background: #b2bec3; }
+.btn:disabled { opacity: 0.5; pointer-events: none; }
+
+/* ========== INSTRUCTION SCREEN ========== */
+#instructions { justify-content: center; align-items: center; padding: 24px; }
+#instructions h2 { font-size: 20px; margin-bottom: 12px; color: #0984e3; }
+#instructions .inst-body { font-size: 14px; line-height: 1.6; color: #2d3436; max-width: 360px; text-align: left; margin-bottom: 20px; }
+#instructions .inst-body strong { color: #d63031; }
+.condition-badge {
+  display: inline-block; padding: 6px 14px; border-radius: 20px;
+  font-size: 13px; font-weight: 700; margin-bottom: 12px;
+}
+.badge-tap { background: #00b894; color: #fff; }
+.badge-mm-small { background: #6c5ce7; color: #fff; }
+.badge-mm-large { background: #e17055; color: #fff; }
+
+/* ========== TASK SCREEN ========== */
+#task-screen { position: relative; overflow: hidden; background: #fff; }
+#task-header {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+  padding: 12px 16px; background: rgba(255,255,255,0.95);
+  border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;
+}
+#task-header .target-label { font-size: 15px; font-weight: 600; }
+#task-header .target-label span { color: #d63031; }
+#task-header .progress { font-size: 12px; color: #636e72; }
+#task-header .condition-tag { font-size: 11px; padding: 3px 8px; border-radius: 10px; font-weight: 600; }
+
+/* Canvas for marking menu drawing */
+#gesture-canvas {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5;
+  pointer-events: none;
+}
+
+/* Interaction area */
+#interaction-area {
+  flex: 1; position: relative; z-index: 2;
+  display: flex; justify-content: center; align-items: center;
+}
+
+/* Tap baseline buttons */
+.tap-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  padding: 80px 16px 20px; width: 100%; max-width: 380px;
+}
+.tap-btn {
+  padding: 18px 8px; border: 2px solid #dfe6e9; border-radius: 12px;
+  background: #fff; font-size: 14px; font-weight: 600; color: #2d3436;
+  text-align: center; cursor: pointer; transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.tap-btn:active { background: #dfe6e9; transform: scale(0.95); }
+.tap-btn.activated { background: #00b894; color: #fff; border-color: #00b894; }
+.tap-btn.wrong { background: #d63031; color: #fff; border-color: #d63031; }
+
+/* Marking Menu overlay */
+#mm-overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 6; pointer-events: none;
+}
+.mm-sector-label {
+  position: absolute; font-size: 12px; font-weight: 700; color: #636e72;
+  transform: translate(-50%, -50%); pointer-events: none;
+  transition: color .1s, transform .1s;
+}
+.mm-sector-label.highlighted { color: #0984e3; transform: translate(-50%, -50%) scale(1.15); }
+.mm-sector-label.target-sector { color: #d63031; }
+
+/* Preview label */
+#mm-preview {
+  position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
+  z-index: 11; padding: 8px 16px; border-radius: 10px;
+  background: rgba(9,132,227,0.9); color: #fff; font-size: 13px; font-weight: 700;
+  display: none; white-space: nowrap;
+}
+
+/* Feedback overlay */
+#feedback-overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 20; display: none; justify-content: center; align-items: center;
+  pointer-events: none;
+}
+#feedback-overlay .feedback-msg {
+  padding: 16px 32px; border-radius: 16px; font-size: 18px; font-weight: 700;
+  animation: feedbackPop 0.3s ease;
+}
+@keyframes feedbackPop { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+.feedback-success { background: rgba(0,184,148,0.95); color: #fff; }
+.feedback-error { background: rgba(214,48,49,0.95); color: #fff; }
+.feedback-cancel { background: rgba(99,110,114,0.8); color: #fff; }
+
+/* Hint text */
+#hint-text {
+  position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+  font-size: 12px; color: #b2bec3; z-index: 3; text-align: center;
+  pointer-events: none;
+}
+
+/* ========== QUESTIONNAIRE SCREEN ========== */
+#questionnaire { padding: 20px; overflow-y: auto; }
+#questionnaire h2 { font-size: 18px; margin-bottom: 4px; color: #0984e3; }
+#questionnaire .q-subtitle { font-size: 12px; color: #636e72; margin-bottom: 16px; }
+.q-section { margin-bottom: 24px; }
+.q-section h3 { font-size: 15px; margin-bottom: 12px; color: #2d3436; }
+.q-item { margin-bottom: 16px; }
+.q-item label { display: block; font-size: 13px; margin-bottom: 6px; line-height: 1.4; }
+.q-item .scale-row { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+.q-item .scale-row .scale-label { font-size: 10px; color: #636e72; min-width: 36px; text-align: center; }
+.q-item .scale-row input[type="range"] { flex: 1; accent-color: #0984e3; }
+.q-item .scale-val { text-align: center; font-size: 12px; color: #0984e3; font-weight: 700; margin-top: 2px; }
+
+/* ========== RESULTS SCREEN ========== */
+#results { padding: 24px; overflow-y: auto; justify-content: flex-start; align-items: center; }
+#results h2 { font-size: 20px; margin-bottom: 16px; color: #0984e3; }
+.results-card {
+  background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px;
+  width: 100%; max-width: 400px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.results-card h3 { font-size: 14px; color: #636e72; margin-bottom: 8px; }
+.results-card .stat { font-size: 22px; font-weight: 700; color: #2d3436; }
+.results-card .stat small { font-size: 13px; color: #636e72; font-weight: 400; }
+.btn-group { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; justify-content: center; }
+</style>
+</head>
+<body>
+
+<!-- ==================== WELCOME ==================== -->
+<div id="welcome" class="screen active">
+  <h1>📱 Marking Menu Study</h1>
+  <p>An evaluation of marking menu input for mobile button activation.<br>Thank you for participating!</p>
+  <div class="form-group">
+    <label>Participant ID (anonymous)</label>
+    <input id="pid" type="text" placeholder="e.g. P01" autocomplete="off">
+  </div>
+  <div class="form-group">
+    <label>Dominant Hand</label>
+    <select id="hand"><option value="right">Right</option><option value="left">Left</option></select>
+  </div>
+  <div class="form-group">
+    <label>Counterbalance Group</label>
+    <select id="cb-group">
+      <option value="1">Group 1: Tap → MM-Small → MM-Large</option>
+      <option value="2">Group 2: MM-Small → MM-Large → Tap</option>
+      <option value="3">Group 3: MM-Large → Tap → MM-Small</option>
+    </select>
+  </div>
+  <button class="btn btn-primary" onclick="startExperiment()">Start Experiment</button>
+</div>
+
+<!-- ==================== INSTRUCTIONS ==================== -->
+<div id="instructions" class="screen">
+  <div id="cond-badge" class="condition-badge"></div>
+  <h2 id="inst-title"></h2>
+  <div id="inst-body" class="inst-body"></div>
+  <button class="btn btn-primary" onclick="beginCondition()">Begin</button>
+</div>
+
+<!-- ==================== TASK ==================== -->
+<div id="task-screen" class="screen">
+  <div id="task-header">
+    <div>
+      <span id="cond-tag" class="condition-tag"></span>
+      <span class="target-label"> Target: <span id="target-name">—</span></span>
+    </div>
+    <span class="progress" id="trial-progress">0 / 0</span>
+  </div>
+  <canvas id="gesture-canvas"></canvas>
+  <div id="mm-overlay"></div>
+  <div id="mm-preview"></div>
+  <div id="interaction-area"></div>
+  <div id="hint-text"></div>
+  <div id="feedback-overlay"><div class="feedback-msg" id="feedback-msg"></div></div>
+</div>
+
+<!-- ==================== QUESTIONNAIRE ==================== -->
+<div id="questionnaire" class="screen">
+  <h2 id="q-title">Questionnaire</h2>
+  <p class="q-subtitle" id="q-sub"></p>
+  <div id="q-content"></div>
+  <div style="padding:12px 0; text-align:center;">
+    <button class="btn btn-primary" onclick="submitQuestionnaire()">Submit & Continue</button>
+  </div>
+</div>
+
+<!-- ==================== RESULTS ==================== -->
+<div id="results" class="screen">
+  <h2>🎉 Study Complete!</h2>
+  <p style="font-size:13px;color:#636e72;margin-bottom:16px;text-align:center;">
+    Thank you for participating. Here's a quick summary.
+  </p>
+  <div id="results-body"></div>
+  <div id="upload-status" style="text-align:center;margin:12px 0;font-size:13px;"></div>
+  <div class="btn-group">
+    <button class="btn btn-primary" onclick="downloadJSON()">📥 Download Data (JSON)</button>
+    <button class="btn btn-secondary" onclick="downloadCSV()">📥 Download Trial Data (CSV)</button>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   EXPERIMENT CONFIGURATION
+   ================================================================ */
+const CONFIG = {
+  N: 8,                    // number of sectors / buttons
+  rSmallMm: 24,            // small radius in mm
+  rLargeMm: 36,            // large radius in mm
+  LminMm: 10,              // minimum gesture distance in mm
+  tDelay: 300,             // ms before menu appears (novice mode)
+  deadzoneMm: 8,           // cancel deadzone radius
+  practiceTrials: 4,
+  formalTrials: 16,        // 8 targets × 2 reps
+  feedbackDurationMs: 600,
+  // NOTE: angular hysteresis was considered but not implemented due to time.
+  // sectorCrossings count is logged instead as a proxy for boundary instability.
+};
+
+// Button labels for N=8
+const BUTTON_LABELS = Array.from({length: CONFIG.N}, (_, i) => `Button ${i + 1}`);
+
+// Sector angles: 0=right, going clockwise
+function sectorAngle(i) { return (i * 360 / CONFIG.N); }
+
+/* ================================================================
+   STATE
+   ================================================================ */
+let state = {
+  pid: '', hand: 'right', cbGroup: 1,
+  conditionOrder: [],
+  currentCondIdx: 0,
+  currentCondition: null,    // 'baseline_tap' | 'marking_rSmall' | 'marking_rLarge'
+  isPractice: true,
+  trials: [],                // trial sequence for current block
+  trialIdx: 0,
+  globalTrialIdx: 0,
+  // Gesture state
+  gestureActive: false,
+  touchStart: null,          // {x, y, time}
+  gesturePath: [],
+  delayTimer: null,
+  menuVisible: false,
+  currentSector: -1,
+  sectorCrossings: 0,
+  // Data
+  allTrialData: [],
+  questionnaireData: {},
+  // Screen DPI helper
+  mmToPx: 1,
+};
+
+/* ================================================================
+   UTILITY FUNCTIONS
+   ================================================================ */
+function mmToPx(mm) { return mm * state.mmToPx; }
+
+function calibrateDPI() {
+  // Use a 1-inch reference div to calculate pixels per mm
+  const div = document.createElement('div');
+  div.style.width = '1in'; div.style.position = 'absolute'; div.style.left = '-9999px';
+  document.body.appendChild(div);
+  const pxPerInch = div.offsetWidth;
+  document.body.removeChild(div);
+  state.mmToPx = pxPerInch / 25.4;
+}
+
+function angleDeg(dx, dy) {
+  // Returns 0-360 degrees, 0 = right, clockwise
+  let a = Math.atan2(dy, dx) * 180 / Math.PI;
+  if (a < 0) a += 360;
+  return a;
+}
+
+function dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); }
+
+function getSectorForAngle(angle) {
+  const sectorWidth = 360 / CONFIG.N;
+  // Offset so sector 0 is centered at angle 0 (right)
+  let adjusted = (angle + sectorWidth / 2) % 360;
+  return Math.floor(adjusted / sectorWidth);
+}
+
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function generateTrialSequence(n) {
+  // Each target appears n/N times (3 times for 24 trials, 8 targets)
+  const reps = Math.ceil(n / CONFIG.N);
+  let seq = [];
+  for (let r = 0; r < reps; r++) {
+    for (let i = 0; i < CONFIG.N; i++) seq.push(i);
+  }
+  seq = shuffleArray(seq).slice(0, n);
+  // Avoid consecutive same targets
+  for (let i = 1; i < seq.length; i++) {
+    if (seq[i] === seq[i-1]) {
+      for (let j = i + 1; j < seq.length; j++) {
+        if (seq[j] !== seq[i]) { [seq[i], seq[j]] = [seq[j], seq[i]]; break; }
+      }
+    }
+  }
+  return seq;
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function getDeviceInfo() {
+  const ua = navigator.userAgent;
+  const isMobile = /Mobi|Android|iPhone|iPad/i.test(ua);
+  return isMobile ? 'mobile' : 'desktop';
+}
+
+function vibrateShort() {
+  if (navigator.vibrate) navigator.vibrate(15);
+}
+
+// Audio feedback (compensates for vibration not working on iOS)
+let audioCtx = null;
+
+function uiClick(kind = 'tick') {
+  // kind: 'tick' (sector change), 'confirm' (commit), 'error' (wrong)
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = audioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const now = ctx.currentTime;
+    const bufferSize = Math.floor(ctx.sampleRate * 0.02); // 20ms noise burst
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < bufferSize; i++) {
+      const t = i / bufferSize;
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-35 * t);
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = kind === 'confirm' ? 1200 : 1800;
+
+    const gain = ctx.createGain();
+    const vol = kind === 'tick' ? 0.03 : kind === 'confirm' ? 0.05 : 0.04;
+    gain.gain.setValueAtTime(vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    src.start(now);
+    src.stop(now + 0.03);
+  } catch (_) { /* fail silently */ }
+}
+
+let lastClickAt = 0;
+function uiClickThrottled(kind = 'tick') {
+  const t = performance.now();
+  if (t - lastClickAt < 60) return; // 60ms min interval
+  lastClickAt = t;
+  uiClick(kind);
+}
+
+/* ================================================================
+   EXPERIMENT FLOW
+   ================================================================ */
+function startExperiment() {
+  const pid = document.getElementById('pid').value.trim();
+  if (!pid) { alert('Please enter a Participant ID.'); return; }
+  
+  state.pid = pid;
+  state.hand = document.getElementById('hand').value;
+  state.cbGroup = parseInt(document.getElementById('cb-group').value);
+  
+  calibrateDPI();
+  
+  // Condition order based on counterbalance group
+  const orders = {
+    1: ['baseline_tap', 'marking_rSmall', 'marking_rLarge'],
+    2: ['marking_rSmall', 'marking_rLarge', 'baseline_tap'],
+    3: ['marking_rLarge', 'baseline_tap', 'marking_rSmall'],
+  };
+  state.conditionOrder = orders[state.cbGroup];
+  state.currentCondIdx = 0;
+  state.globalTrialIdx = 0;
+  
+  showConditionInstructions();
+}
+
+function showConditionInstructions() {
+  const cond = state.conditionOrder[state.currentCondIdx];
+  state.currentCondition = cond;
+  
+  const badge = document.getElementById('cond-badge');
+  const title = document.getElementById('inst-title');
+  const body = document.getElementById('inst-body');
+  
+  if (cond === 'baseline_tap') {
+    badge.className = 'condition-badge badge-tap';
+    badge.textContent = 'Baseline: Direct Tap';
+    title.textContent = 'Direct Tap Condition';
+    body.innerHTML = `
+      <p>In this condition, <strong>8 buttons</strong> will appear on screen.</p>
+      <p>A target button name will be shown at the top. Your task is to <strong>tap the correct button</strong> as quickly and accurately as possible.</p>
+      <p>You'll start with <strong>${CONFIG.practiceTrials} practice trials</strong>, then complete <strong>${CONFIG.formalTrials} formal trials</strong>.</p>
+      <p>Tap <strong>Begin</strong> when you're ready.</p>
+    `;
+  } else {
+    const isSmall = cond === 'marking_rSmall';
+    badge.className = 'condition-badge ' + (isSmall ? 'badge-mm-small' : 'badge-mm-large');
+    badge.textContent = isSmall ? 'Marking Menu (Small)' : 'Marking Menu (Large)';
+    title.textContent = 'Marking Menu Condition';
+    body.innerHTML = `
+      <p>In this condition, you'll activate buttons using a <strong>marking menu gesture</strong>.</p>
+      <p><strong>How it works:</strong></p>
+      <p>1. <strong>Press and hold</strong> anywhere on the blank area.<br>
+         2. A circular menu with 8 options will appear.<br>
+         3. <strong>Slide your finger</strong> towards the target button direction.<br>
+         4. <strong>Release</strong> to confirm your selection.</p>
+      <p>The menu radius is <strong>${isSmall ? 'small (24mm)' : 'large (36mm)'}</strong>.</p>
+      <p><strong>To cancel:</strong> release your finger near the center (without sliding).</p>
+      <p>You'll start with <strong>${CONFIG.practiceTrials} practice</strong> trials, then <strong>${CONFIG.formalTrials} formal</strong> trials.</p>
+    `;
+  }
+  
+  showScreen('instructions');
+}
+
+function beginCondition() {
+  state.isPractice = true;
+  state.trials = generateTrialSequence(CONFIG.practiceTrials);
+  state.trialIdx = 0;
+  setupTaskScreen();
+}
+
+function setupTaskScreen() {
+  const area = document.getElementById('interaction-area');
+  const overlay = document.getElementById('mm-overlay');
+  const canvas = document.getElementById('gesture-canvas');
+  const hint = document.getElementById('hint-text');
+  
+  area.innerHTML = '';
+  overlay.innerHTML = '';
+  
+  // Resize canvas
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  
+  const cond = state.currentCondition;
+  const tag = document.getElementById('cond-tag');
+  
+  if (cond === 'baseline_tap') {
+    tag.style.background = '#00b894'; tag.style.color = '#fff';
+    tag.textContent = 'Tap';
+    hint.textContent = 'Tap the target button';
+    setupTapGrid();
+  } else {
+    const isSmall = cond === 'marking_rSmall';
+    tag.style.background = isSmall ? '#6c5ce7' : '#e17055'; tag.style.color = '#fff';
+    tag.textContent = isSmall ? 'MM-Small' : 'MM-Large';
+    hint.textContent = 'Press & hold anywhere, then slide to select';
+    setupMarkingArea();
+  }
+  
+  showScreen('task-screen');
+  presentTrial();
+}
+
+/* ================================================================
+   TRIAL PRESENTATION
+   ================================================================ */
+function presentTrial() {
+  if (state.trialIdx >= state.trials.length) {
+    onBlockComplete();
+    return;
+  }
+  
+  const targetIdx = state.trials[state.trialIdx];
+  document.getElementById('target-name').textContent = BUTTON_LABELS[targetIdx];
+  
+  const total = state.trials.length;
+  const prefix = state.isPractice ? 'Practice ' : '';
+  document.getElementById('trial-progress').textContent = `${prefix}${state.trialIdx + 1} / ${total}`;
+  
+  // Reset tap button states
+  document.querySelectorAll('.tap-btn').forEach(b => {
+    b.classList.remove('activated', 'wrong');
+  });
+  
+  // Clear canvas
+  const canvas = document.getElementById('gesture-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Hide overlays
+  document.getElementById('mm-preview').style.display = 'none';
+  document.getElementById('feedback-overlay').style.display = 'none';
+  overlay_clearLabels();
+  
+  // Record start time
+  state.trialStartTime = performance.now();
+  state.gestureActive = false;
+}
+
+/* ================================================================
+   BASELINE TAP GRID
+   ================================================================ */
+function setupTapGrid() {
+  const area = document.getElementById('interaction-area');
+  area.style.padding = '60px 16px 16px';
+  area.style.alignItems = 'flex-start';
+  
+  const grid = document.createElement('div');
+  grid.className = 'tap-grid';
+  
+  // For N=8, use a 4-column grid (4+4 symmetric layout)
+  for (let i = 0; i < CONFIG.N; i++) {
+    const btn = document.createElement('div');
+    btn.className = 'tap-btn';
+    btn.textContent = BUTTON_LABELS[i];
+    btn.dataset.idx = i;
+    btn.addEventListener('pointerdown', onTapButton);
+    grid.appendChild(btn);
+  }
+  
+  area.appendChild(grid);
+}
+
+function onTapButton(e) {
+  e.preventDefault();
+  const idx = parseInt(e.currentTarget.dataset.idx);
+  const targetIdx = state.trials[state.trialIdx];
+  const endTime = performance.now();
+  const success = idx === targetIdx;
+  
+  // Visual + audio feedback
+  if (success) {
+    e.currentTarget.classList.add('activated');
+    vibrateShort();
+    uiClick('confirm');
+  } else {
+    e.currentTarget.classList.add('wrong');
+    uiClick('error');
+  }
+  
+  recordTrial({
+    selectedID: idx,
+    success: success,
+    errorType: success ? 'none' : 'wrongButton',
+    gesturePath: [],
+    gestureLengthMm: 0,
+    netDisplacementMm: 0,
+    meanAngleDeg: 0,
+    numSectorCrossings: 0,
+    pointerCancelFlag: false,
+    taskEndTimeMs: endTime,
+  });
+  
+  showFeedback(success, success ? '✅ Correct!' : `❌ Wrong (was ${BUTTON_LABELS[targetIdx]})`);
+}
+
+/* ================================================================
+   MARKING MENU
+   ================================================================ */
+function setupMarkingArea() {
+  const area = document.getElementById('interaction-area');
+  area.style.padding = '0';
+  area.style.alignItems = 'center';
+  
+  // Full-area touch zone
+  const zone = document.createElement('div');
+  zone.id = 'mm-zone';
+  zone.style.cssText = 'width:100%;height:100%;position:absolute;top:0;left:0;z-index:4;touch-action:none;';
+  
+  zone.addEventListener('pointerdown', onMMPointerDown, {passive: false});
+  zone.addEventListener('pointermove', onMMPointerMove, {passive: false});
+  zone.addEventListener('pointerup', onMMPointerUp, {passive: false});
+  zone.addEventListener('pointercancel', onMMPointerCancel, {passive: false});
+  // Prevent context menu on long press
+  zone.addEventListener('contextmenu', e => e.preventDefault());
+  
+  area.appendChild(zone);
+}
+
+function getRadiusPx() {
+  const rMm = state.currentCondition === 'marking_rSmall' ? CONFIG.rSmallMm : CONFIG.rLargeMm;
+  return mmToPx(rMm);
+}
+
+function onMMPointerDown(e) {
+  e.preventDefault();
+  if (state.gestureActive) return;
+  
+  // Capture pointer
+  e.target.setPointerCapture(e.pointerId);
+  
+  state.gestureActive = true;
+  state.touchStart = { x: e.clientX, y: e.clientY, time: performance.now() };
+  state.gesturePath = [{ x: e.clientX, y: e.clientY, t: performance.now() }];
+  state.menuVisible = false;
+  state.currentSector = -1;
+  state.sectorCrossings = 0;
+  state.menuCenter = null;  // Reset so we don't use stale center from previous trial
+  
+  // Start delay timer for novice mode
+  state.delayTimer = setTimeout(() => {
+    if (state.gestureActive && !state.menuVisible) {
+      const d = dist(state.touchStart.x, state.touchStart.y,
+                     state.gesturePath[state.gesturePath.length-1].x,
+                     state.gesturePath[state.gesturePath.length-1].y);
+      if (d < mmToPx(CONFIG.LminMm)) {
+        // Show menu (novice mode)
+        state.menuVisible = true;
+        showRadialMenu(state.touchStart.x, state.touchStart.y);
+      }
+    }
+  }, CONFIG.tDelay);
+}
+
+function onMMPointerMove(e) {
+  e.preventDefault();
+  if (!state.gestureActive) return;
+  
+  const cx = e.clientX, cy = e.clientY;
+  state.gesturePath.push({ x: cx, y: cy, t: performance.now() });
+  
+  // Distance from original touch (used for expert-mode detection only)
+  const rawDx = cx - state.touchStart.x;
+  const rawDy = cy - state.touchStart.y;
+  const rawD = Math.hypot(rawDx, rawDy);
+  
+  // Expert mode: if moved beyond Lmin before delay, skip menu display
+  if (!state.menuVisible && rawD >= mmToPx(CONFIG.LminMm)) {
+    clearTimeout(state.delayTimer);
+    state.menuVisible = true;
+    showRadialMenu(state.touchStart.x, state.touchStart.y);
+  }
+  
+  if (state.menuVisible) {
+    // Use rendered menu center for angle calc (may differ from touchStart near edges)
+    const refX = state.menuCenter ? state.menuCenter.x : state.touchStart.x;
+    const refY = state.menuCenter ? state.menuCenter.y : state.touchStart.y;
+    const dx = cx - refX;
+    const dy = cy - refY;
+    const d = Math.hypot(dx, dy);
+    
+    if (d >= mmToPx(CONFIG.deadzoneMm)) {
+      const angle = angleDeg(dx, dy);
+      const sector = getSectorForAngle(angle);
+      
+      if (sector !== state.currentSector) {
+        if (state.currentSector >= 0) state.sectorCrossings++;
+        state.currentSector = sector;
+        highlightSector(sector);
+        updatePreview(sector);
+        uiClickThrottled('tick');
+      }
+      drawTrail();
+    } else {
+      // In deadzone - no sector selected
+      if (state.currentSector >= 0) {
+        state.currentSector = -1;
+        highlightSector(-1);
+        updatePreview(-1);
+      }
+    }
+  }
+}
+
+function onMMPointerUp(e) {
+  e.preventDefault();
+  if (!state.gestureActive) return;
+  
+  clearTimeout(state.delayTimer);
+  state.gestureActive = false;
+  
+  const endTime = performance.now();
+  const cx = e.clientX, cy = e.clientY;
+  
+  // Use rendered menu center for angle (consistent with pointermove)
+  const refX = state.menuCenter ? state.menuCenter.x : state.touchStart.x;
+  const refY = state.menuCenter ? state.menuCenter.y : state.touchStart.y;
+  const dx = cx - refX;
+  const dy = cy - refY;
+  const d = Math.hypot(dx, dy);
+  
+  const targetIdx = state.trials[state.trialIdx];
+  const pathMm = computePathLengthMm();
+  const netMm = d / state.mmToPx;
+  const meanAngle = state.gesturePath.length > 1 ? angleDeg(dx, dy) : 0;
+  
+  let selectedID, success, errorType;
+  
+  if (d < mmToPx(CONFIG.deadzoneMm)) {
+    // Cancelled - released in deadzone
+    selectedID = -1;
+    success = false;
+    errorType = d < mmToPx(CONFIG.LminMm) ? 'earlyRelease' : 'cancelByDeadzone';
+  } else if (state.currentSector >= 0) {
+    selectedID = state.currentSector;
+    success = selectedID === targetIdx;
+    errorType = success ? 'none' : 'wrongSector';
+    if (success) { vibrateShort(); uiClick('confirm'); }
+    else { uiClick('error'); }
+  } else {
+    selectedID = -1;
+    success = false;
+    errorType = 'earlyRelease';
+  }
+  
+  recordTrial({
+    selectedID,
+    success,
+    errorType,
+    gesturePath: state.gesturePath.map(p => ({x: Math.round(p.x), y: Math.round(p.y)})),
+    gestureLengthMm: Math.round(pathMm * 10) / 10,
+    netDisplacementMm: Math.round(netMm * 10) / 10,
+    meanAngleDeg: Math.round(meanAngle * 10) / 10,
+    numSectorCrossings: state.sectorCrossings,
+    pointerCancelFlag: false,
+    taskEndTimeMs: endTime,
+  });
+  
+  let msg;
+  if (success) msg = `✅ ${BUTTON_LABELS[selectedID]}`;
+  else if (errorType === 'wrongSector') msg = `❌ Selected ${BUTTON_LABELS[selectedID]}`;
+  else if (errorType === 'cancelByDeadzone') msg = '↩ Cancelled';
+  else msg = '↩ Released too early';
+  
+  showFeedback(success, msg, errorType.startsWith('cancel') || errorType === 'earlyRelease' ? 'cancel' : undefined);
+}
+
+function onMMPointerCancel(e) {
+  if (!state.gestureActive) return;
+  clearTimeout(state.delayTimer);
+  state.gestureActive = false;
+  
+  const endTime = performance.now();
+  
+  recordTrial({
+    selectedID: -1,
+    success: false,
+    errorType: 'pointerCancelled',
+    gesturePath: state.gesturePath.map(p => ({x: Math.round(p.x), y: Math.round(p.y)})),
+    gestureLengthMm: Math.round(computePathLengthMm() * 10) / 10,
+    netDisplacementMm: 0,
+    meanAngleDeg: 0,
+    numSectorCrossings: state.sectorCrossings,
+    pointerCancelFlag: true,
+    taskEndTimeMs: endTime,
+  });
+  
+  showFeedback(false, '⚠ Gesture interrupted', 'cancel');
+}
+
+function computePathLengthMm() {
+  let len = 0;
+  for (let i = 1; i < state.gesturePath.length; i++) {
+    len += dist(state.gesturePath[i-1].x, state.gesturePath[i-1].y,
+                state.gesturePath[i].x, state.gesturePath[i].y);
+  }
+  return len / state.mmToPx;
+}
+
+/* ================================================================
+   RADIAL MENU RENDERING
+   ================================================================ */
+function showRadialMenu(cx, cy) {
+  const overlay = document.getElementById('mm-overlay');
+  overlay.innerHTML = '';
+  
+  const r = getRadiusPx();
+  const targetIdx = state.trials[state.trialIdx];
+  
+  // Clamp center to keep menu on screen
+  const margin = r + 40;
+  const adjX = Math.max(margin, Math.min(window.innerWidth - margin, cx));
+  const adjY = Math.max(margin + 50, Math.min(window.innerHeight - margin, cy));
+  
+  // NOTE: adjX/adjY may differ from cx/cy near edges (clamped).
+  // Angle computation in pointermove/up uses state.menuCenter for consistency.
+  
+  // Draw sector labels
+  for (let i = 0; i < CONFIG.N; i++) {
+    const a = sectorAngle(i) * Math.PI / 180;
+    const labelR = r + 18;
+    const lx = adjX + Math.cos(a) * labelR;
+    const ly = adjY + Math.sin(a) * labelR;
+    
+    const label = document.createElement('div');
+    label.className = 'mm-sector-label';
+    label.dataset.sector = i;
+    label.textContent = BUTTON_LABELS[i];
+    label.style.left = lx + 'px';
+    label.style.top = ly + 'px';
+    if (i === targetIdx) label.classList.add('target-sector');
+    
+    overlay.appendChild(label);
+  }
+  
+  // Draw radial menu background on canvas
+  const canvas = document.getElementById('gesture-canvas');
+  const ctx = canvas.getContext('2d');
+  
+  // Central ring
+  ctx.beginPath();
+  ctx.arc(adjX, adjY, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(9,132,227,0.2)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  
+  // Sector dividers
+  for (let i = 0; i < CONFIG.N; i++) {
+    const a = (sectorAngle(i) - 360/CONFIG.N/2) * Math.PI / 180;
+    ctx.beginPath();
+    ctx.moveTo(adjX, adjY);
+    ctx.lineTo(adjX + Math.cos(a) * r, adjY + Math.sin(a) * r);
+    ctx.strokeStyle = 'rgba(9,132,227,0.1)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  
+  // Deadzone circle
+  ctx.beginPath();
+  ctx.arc(adjX, adjY, mmToPx(CONFIG.deadzoneMm), 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(178,190,195,0.15)';
+  ctx.fill();
+  
+  // Store adjusted center for rendering
+  state.menuCenter = { x: adjX, y: adjY };
+}
+
+function highlightSector(sectorIdx) {
+  document.querySelectorAll('.mm-sector-label').forEach(el => {
+    el.classList.toggle('highlighted', parseInt(el.dataset.sector) === sectorIdx);
+  });
+  
+  // Draw highlight arc on canvas
+  if (sectorIdx >= 0 && state.menuCenter) {
+    const canvas = document.getElementById('gesture-canvas');
+    const ctx = canvas.getContext('2d');
+    const r = getRadiusPx();
+    const cx = state.menuCenter.x, cy = state.menuCenter.y;
+    
+    // Redraw base menu
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Sector dividers
+    for (let i = 0; i < CONFIG.N; i++) {
+      const a = (sectorAngle(i) - 360/CONFIG.N/2) * Math.PI / 180;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      ctx.strokeStyle = 'rgba(9,132,227,0.1)'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    
+    // Ring
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(9,132,227,0.2)'; ctx.lineWidth = 2; ctx.stroke();
+    
+    // Deadzone
+    ctx.beginPath(); ctx.arc(cx, cy, mmToPx(CONFIG.deadzoneMm), 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(178,190,195,0.15)'; ctx.fill();
+    
+    // Highlight arc
+    const sectorW = 360 / CONFIG.N;
+    const startA = (sectorAngle(sectorIdx) - sectorW / 2) * Math.PI / 180;
+    const endA = (sectorAngle(sectorIdx) + sectorW / 2) * Math.PI / 180;
+    
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, startA, endA);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(9,132,227,0.12)';
+    ctx.fill();
+    
+    // Draw gesture trail
+    drawTrailOnCtx(ctx);
+  }
+}
+
+function drawTrail() {
+  if (!state.menuCenter) return;
+  const canvas = document.getElementById('gesture-canvas');
+  const ctx = canvas.getContext('2d');
+  // Redraw happens in highlightSector, but if no sector change, redraw trail
+  drawTrailOnCtx(ctx);
+}
+
+function drawTrailOnCtx(ctx) {
+  if (state.gesturePath.length < 2) return;
+  ctx.beginPath();
+  ctx.moveTo(state.gesturePath[0].x, state.gesturePath[0].y);
+  for (let i = 1; i < state.gesturePath.length; i++) {
+    ctx.lineTo(state.gesturePath[i].x, state.gesturePath[i].y);
+  }
+  ctx.strokeStyle = 'rgba(9,132,227,0.4)';
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+}
+
+function updatePreview(sectorIdx) {
+  const preview = document.getElementById('mm-preview');
+  if (sectorIdx >= 0) {
+    preview.textContent = `→ ${BUTTON_LABELS[sectorIdx]}`;
+    preview.style.display = 'block';
+  } else {
+    preview.style.display = 'none';
+  }
+}
+
+function overlay_clearLabels() {
+  document.getElementById('mm-overlay').innerHTML = '';
+}
+
+/* ================================================================
+   FEEDBACK & TRIAL RECORDING
+   ================================================================ */
+function showFeedback(success, msg, type) {
+  const overlay = document.getElementById('feedback-overlay');
+  const msgEl = document.getElementById('feedback-msg');
+  
+  msgEl.textContent = msg;
+  msgEl.className = 'feedback-msg ' + (success ? 'feedback-success' : (type === 'cancel' ? 'feedback-cancel' : 'feedback-error'));
+  overlay.style.display = 'flex';
+  
+  setTimeout(() => {
+    overlay.style.display = 'none';
+    state.trialIdx++;
+    presentTrial();
+  }, CONFIG.feedbackDurationMs);
+}
+
+function recordTrial(data) {
+  const targetIdx = state.trials[state.trialIdx];
+  const rMm = state.currentCondition === 'baseline_tap' ? 0
+    : state.currentCondition === 'marking_rSmall' ? CONFIG.rSmallMm : CONFIG.rLargeMm;
+  
+  const trialRecord = {
+    participantID: state.pid,
+    condition: state.currentCondition,
+    isPractice: state.isPractice,
+    blockIndex: state.currentCondIdx,
+    trialIndex: state.globalTrialIdx,
+    trialInBlock: state.trialIdx,
+    targetID: targetIdx,
+    targetLabel: BUTTON_LABELS[targetIdx],
+    selectedID: data.selectedID,
+    selectedLabel: data.selectedID >= 0 ? BUTTON_LABELS[data.selectedID] : 'none',
+    success: data.success ? 1 : 0,
+    errorType: data.errorType,
+    taskStartTimeMs: Math.round(state.trialStartTime),
+    taskEndTimeMs: Math.round(data.taskEndTimeMs),
+    taskTimeMs: Math.round(data.taskEndTimeMs - state.trialStartTime),
+    N: CONFIG.N,
+    rMm: rMm,
+    LminMm: CONFIG.LminMm,
+    delayMs: CONFIG.tDelay,
+    gestureLengthMm: data.gestureLengthMm,
+    netDisplacementMm: data.netDisplacementMm,
+    meanAngleDeg: data.meanAngleDeg,
+    numSectorCrossings: data.numSectorCrossings,
+    pointerCancelFlag: data.pointerCancelFlag ? 1 : 0,
+    dominantHand: state.hand,
+    deviceType: getDeviceInfo(),
+    timestamp: new Date().toISOString(),
+  };
+  
+  if (!state.isPractice) {
+    state.allTrialData.push(trialRecord);
+    state.globalTrialIdx++;
+  }
+}
+
+/* ================================================================
+   BLOCK COMPLETION
+   ================================================================ */
+function onBlockComplete() {
+  if (state.isPractice) {
+    // Move to formal trials
+    state.isPractice = false;
+    state.trials = generateTrialSequence(CONFIG.formalTrials);
+    state.trialIdx = 0;
+    
+    // Brief transition message
+    const area = document.getElementById('interaction-area');
+    area.innerHTML = `<div style="text-align:center;padding:40px 20px;">
+      <h3 style="color:#0984e3;margin-bottom:12px;">Practice Complete!</h3>
+      <p style="font-size:14px;color:#636e72;margin-bottom:20px;">
+        Now starting ${CONFIG.formalTrials} formal trials.<br>Your data will be recorded.
+      </p>
+      <button class="btn btn-primary" onclick="resumeFormal()">Start Formal Trials</button>
+    </div>`;
+    return;
+  }
+  
+  // Formal trials complete → show questionnaire for this condition
+  showQuestionnaireForCondition();
+}
+
+function resumeFormal() {
+  setupTaskScreen();
+}
+
+/* ================================================================
+   QUESTIONNAIRE
+   ================================================================ */
+function showQuestionnaireForCondition() {
+  const cond = state.currentCondition;
+  const condName = cond === 'baseline_tap' ? 'Direct Tap' :
+                   cond === 'marking_rSmall' ? 'Marking Menu (Small)' : 'Marking Menu (Large)';
+  
+  document.getElementById('q-title').textContent = `Questionnaire: ${condName}`;
+  document.getElementById('q-sub').textContent = 'Please rate your experience with this input method.';
+  
+  const content = document.getElementById('q-content');
+  content.innerHTML = '';
+  
+  // SUS (System Usability Scale) — 10 items, standard Brooke formulation
+  const susSection = createSection('System Usability Scale');
+  const susItems = [
+    'I think that I would like to use this system frequently.',
+    'I found the system unnecessarily complex.',
+    'I thought the system was easy to use.',
+    'I think I would need the support of a technical person to use this system.',
+    'I found the various functions in this system were well integrated.',
+    'I thought there was too much inconsistency in this system.',
+    'I would imagine that most people would learn to use this system very quickly.',
+    'I found the system very cumbersome to use.',
+    'I felt very confident using the system.',
+    'I needed to learn a lot of things before I could get going with this system.',
+  ];
+  susItems.forEach((q, i) => susSection.appendChild(
+    createScaleItem(`sus_${i+1}`, `${i+1}. ${q}`, 1, 5, 3, 'Strongly\nDisagree', 'Strongly\nAgree')
+  ));
+  content.appendChild(susSection);
+  
+  // Custom questions — technique-specific
+  const customSection = createSection('Additional Questions');
+  const customItems = [
+    { id: 'predictable', label: 'I could predict which button the system would activate.', low: 'Strongly\nDisagree', high: 'Strongly\nAgree' },
+    { id: 'cancel', label: 'It was easy to cancel a selection if I made a mistake.', low: 'Strongly\nDisagree', high: 'Strongly\nAgree' },
+    { id: 'onehand', label: 'I would be comfortable using this technique with one hand.', low: 'Strongly\nDisagree', high: 'Strongly\nAgree' },
+  ];
+  customItems.forEach(item => customSection.appendChild(createScaleItem(`custom_${item.id}`, item.label, 1, 7, 4, item.low, item.high)));
+  content.appendChild(customSection);
+  
+  // NOTE: NASA-TLX was removed to reduce participant burden.
+  // SUS + 3 custom items (13 total) provides sufficient subjective data per condition.
+  
+  showScreen('questionnaire');
+}
+
+function createSection(title) {
+  const sec = document.createElement('div');
+  sec.className = 'q-section';
+  const h = document.createElement('h3');
+  h.textContent = title;
+  sec.appendChild(h);
+  return sec;
+}
+
+function createScaleItem(id, label, min, max, defaultVal, lowLabel, highLabel) {
+  const item = document.createElement('div');
+  item.className = 'q-item';
+  
+  const lbl = document.createElement('label');
+  lbl.textContent = label;
+  item.appendChild(lbl);
+  
+  const row = document.createElement('div');
+  row.className = 'scale-row';
+  
+  const lowSpan = document.createElement('span');
+  lowSpan.className = 'scale-label';
+  lowSpan.textContent = lowLabel;
+  
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = min;
+  input.max = max;
+  input.value = defaultVal;
+  input.id = id;
+  input.step = 1;
+  
+  const highSpan = document.createElement('span');
+  highSpan.className = 'scale-label';
+  highSpan.textContent = highLabel;
+  
+  row.appendChild(lowSpan);
+  row.appendChild(input);
+  row.appendChild(highSpan);
+  item.appendChild(row);
+  
+  const val = document.createElement('div');
+  val.className = 'scale-val';
+  val.textContent = defaultVal;
+  val.id = `${id}_val`;
+  input.addEventListener('input', () => { val.textContent = input.value; });
+  item.appendChild(val);
+  
+  return item;
+}
+
+function submitQuestionnaire() {
+  const cond = state.currentCondition;
+  const data = {};
+  
+  // Collect all inputs
+  document.querySelectorAll('#q-content input[type="range"]').forEach(input => {
+    data[input.id] = parseInt(input.value);
+  });
+  
+  state.questionnaireData[cond] = data;
+  
+  // Move to next condition or finish
+  state.currentCondIdx++;
+  if (state.currentCondIdx < state.conditionOrder.length) {
+    showConditionInstructions();
+  } else {
+    showResults();
+  }
+}
+
+/* ================================================================
+   RESULTS
+   ================================================================ */
+function showResults() {
+  const body = document.getElementById('results-body');
+  body.innerHTML = '';
+  
+  const conditions = ['baseline_tap', 'marking_rSmall', 'marking_rLarge'];
+  const condNames = { baseline_tap: 'Direct Tap', marking_rSmall: 'MM Small (24mm)', marking_rLarge: 'MM Large (36mm)' };
+  
+  conditions.forEach(cond => {
+    const trials = state.allTrialData.filter(t => t.condition === cond);
+    if (trials.length === 0) return;
+    
+    const successCount = trials.filter(t => t.success).length;
+    const successRate = (successCount / trials.length * 100).toFixed(1);
+    const successTrials = trials.filter(t => t.success);
+    const avgTime = successTrials.length > 0
+      ? Math.round(successTrials.reduce((s, t) => s + t.taskTimeMs, 0) / successTrials.length)
+      : 0;
+    
+    const card = document.createElement('div');
+    card.className = 'results-card';
+    card.innerHTML = `
+      <h3>${condNames[cond]}</h3>
+      <div class="stat">${successRate}% <small>success (${successCount}/${trials.length})</small></div>
+      <div class="stat">${avgTime} ms <small>avg time (correct trials)</small></div>
+    `;
+    body.appendChild(card);
+  });
+  
+  // SUS scores
+  conditions.forEach(cond => {
+    const qd = state.questionnaireData[cond];
+    if (!qd) return;
+    const sus = computeSUS(qd);
+    const card = document.createElement('div');
+    card.className = 'results-card';
+    card.innerHTML = `<h3>${condNames[cond]} – SUS Score</h3><div class="stat">${sus.toFixed(1)} <small>/ 100</small></div>`;
+    body.appendChild(card);
+  });
+  
+  showScreen('results');
+  
+  // Auto-upload to Firebase
+  uploadToFirebase();
+}
+
+function uploadToFirebase() {
+  const statusEl = document.getElementById('upload-status');
+  
+  if (!firebaseReady) {
+    statusEl.innerHTML = '<span style="color:#636e72;">⚙️ Firebase not configured — please download data manually.</span>';
+    return;
+  }
+  
+  statusEl.innerHTML = '<span style="color:#0984e3;">⏳ Uploading data...</span>';
+  
+  const exportData = {
+    participant: { id: state.pid, hand: state.hand, counterbalanceGroup: state.cbGroup, device: getDeviceInfo() },
+    config: CONFIG,
+    conditionOrder: state.conditionOrder,
+    trialData: state.allTrialData,
+    questionnaireData: state.questionnaireData,
+    uploadedAt: new Date().toISOString(),
+  };
+  
+  const db = firebase.database();
+  const ref = db.ref('participants/' + state.pid);
+  
+  ref.set(exportData)
+    .then(() => {
+      statusEl.innerHTML = '<span style="color:#00b894;">✅ Data uploaded successfully! You can close this page.</span>';
+    })
+    .catch(err => {
+      console.error('Firebase upload error:', err);
+      statusEl.innerHTML = '<span style="color:#d63031;">❌ Upload failed — please download data manually.</span>';
+    });
+}
+
+function computeSUS(qd) {
+  // SUS scoring: odd items (1,3,5,7,9) → score - 1; even items (2,4,6,8,10) → 5 - score
+  let total = 0;
+  for (let i = 1; i <= 10; i++) {
+    const val = qd[`sus_${i}`] || 3;
+    if (i % 2 === 1) total += (val - 1);
+    else total += (5 - val);
+  }
+  return total * 2.5; // Scale to 0-100
+}
+
+/* ================================================================
+   DATA EXPORT
+   ================================================================ */
+function downloadCSV() {
+  if (state.allTrialData.length === 0) { alert('No trial data to export.'); return; }
+  
+  // Export all fields except the raw gesturePath array (too large for CSV)
+  const headers = Object.keys(state.allTrialData[0]).filter(k => k !== 'gesturePath');
+  
+  let csv = headers.join(',') + '\n';
+  state.allTrialData.forEach(row => {
+    csv += headers.map(h => {
+      let val = row[h];
+      if (val === undefined || val === null) val = '';
+      if (typeof val === 'string' && val.includes(',')) val = `"${val}"`;
+      return val;
+    }).join(',') + '\n';
+  });
+  
+  downloadFile(`trial_data_${state.pid}.csv`, csv, 'text/csv');
+}
+
+function downloadJSON() {
+  const exportData = {
+    participant: { id: state.pid, hand: state.hand, counterbalanceGroup: state.cbGroup, device: getDeviceInfo() },
+    config: CONFIG,
+    conditionOrder: state.conditionOrder,
+    trialData: state.allTrialData,
+    questionnaireData: state.questionnaireData,
+    exportedAt: new Date().toISOString(),
+  };
+  
+  downloadFile(`study_data_${state.pid}.json`, JSON.stringify(exportData, null, 2), 'application/json');
+}
+
+function downloadFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ================================================================
+   WINDOW RESIZE HANDLING
+   ================================================================ */
+window.addEventListener('resize', () => {
+  const canvas = document.getElementById('gesture-canvas');
+  if (canvas) { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+});
+
+// Prevent default touch behaviors globally
+document.addEventListener('touchmove', e => {
+  if (document.getElementById('task-screen').classList.contains('active')) {
+    e.preventDefault();
+  }
+}, { passive: false });
+</script>
+</body>
+</html>

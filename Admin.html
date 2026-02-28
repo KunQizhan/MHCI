@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Study Admin – Data Dashboard</title>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f5f6fa; color: #2d3436; padding: 24px; max-width: 900px; margin: 0 auto;
+}
+h1 { font-size: 22px; color: #0984e3; margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: #636e72; margin-bottom: 20px; }
+.card {
+  background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.card h2 { font-size: 16px; color: #2d3436; margin-bottom: 12px; }
+.stats-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.stat-box {
+  background: #f5f6fa; border-radius: 8px; padding: 12px 16px; min-width: 120px;
+}
+.stat-box .num { font-size: 24px; font-weight: 700; color: #0984e3; }
+.stat-box .label { font-size: 11px; color: #636e72; margin-top: 2px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #f5f6fa; font-weight: 600; color: #636e72; font-size: 11px; text-transform: uppercase; }
+td { color: #2d3436; }
+.status-ok { color: #00b894; font-weight: 600; }
+.status-partial { color: #e17055; font-weight: 600; }
+.btn {
+  display: inline-block; padding: 8px 16px; border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s;
+}
+.btn-primary { background: #0984e3; color: #fff; }
+.btn-primary:hover { background: #0652DD; }
+.btn-sm { padding: 4px 10px; font-size: 11px; border-radius: 6px; }
+.btn-outline { background: none; border: 1.5px solid #0984e3; color: #0984e3; }
+.btn-outline:hover { background: #e8f4fd; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.loading { text-align: center; padding: 40px; color: #636e72; }
+.error { color: #d63031; padding: 20px; text-align: center; }
+#config-form { display: flex; flex-direction: column; gap: 8px; max-width: 500px; }
+#config-form input {
+  padding: 10px; border: 2px solid #dfe6e9; border-radius: 8px; font-size: 14px;
+  outline: none; font-family: monospace;
+}
+#config-form input:focus { border-color: #0984e3; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<h1>📊 Study Admin Dashboard</h1>
+<p class="subtitle">Marking Menu Input Technique — Data Collection Monitor</p>
+
+<!-- Config Section (shown if Firebase not configured) -->
+<div id="config-section" class="card">
+  <h2>🔧 Firebase Configuration</h2>
+  <p style="font-size:13px;color:#636e72;margin-bottom:12px;">
+    Enter your Firebase Realtime Database URL to connect.
+  </p>
+  <div id="config-form">
+    <input id="db-url" type="text" placeholder="https://YOUR_PROJECT-default-rtdb.firebaseio.com" 
+           value="">
+    <button class="btn btn-primary" onclick="connectFirebase()">Connect</button>
+  </div>
+</div>
+
+<!-- Dashboard (shown after connection) -->
+<div id="dashboard" class="hidden">
+  
+  <div class="card">
+    <h2>Overview</h2>
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="num" id="total-participants">0</div>
+        <div class="label">Participants</div>
+      </div>
+      <div class="stat-box">
+        <div class="num" id="total-trials">0</div>
+        <div class="label">Total Trials</div>
+      </div>
+      <div class="stat-box">
+        <div class="num" id="complete-count">0</div>
+        <div class="label">Complete (48 trials)</div>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="downloadAllJSON()">📥 Download All (JSON)</button>
+      <button class="btn btn-outline" onclick="downloadAllCSV()">📥 Download All Trials (CSV)</button>
+      <button class="btn btn-outline" onclick="refreshData()">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Participants</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Group</th>
+          <th>Hand</th>
+          <th>Trials</th>
+          <th>Status</th>
+          <th>Uploaded</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="participants-table"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let db = null;
+let allData = {};
+
+function connectFirebase() {
+  const url = document.getElementById('db-url').value.trim();
+  if (!url || !url.includes('firebaseio.com')) {
+    alert('Please enter a valid Firebase Realtime Database URL.');
+    return;
+  }
+
+  try {
+    // Extract project ID from URL
+    const projectId = url.replace('https://', '').replace('-default-rtdb.firebaseio.com', '').replace('.firebaseio.com', '');
+    
+    const config = {
+      databaseURL: url.endsWith('/') ? url.slice(0, -1) : url,
+      projectId: projectId,
+    };
+
+    // Initialize if not already done
+    if (!firebase.apps.length) {
+      firebase.initializeApp(config);
+    }
+    db = firebase.database();
+
+    // Save URL for next visit
+    try { localStorage.setItem('firebaseURL', url); } catch(_) {}
+
+    document.getElementById('config-section').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    
+    refreshData();
+  } catch (e) {
+    alert('Connection failed: ' + e.message);
+  }
+}
+
+function refreshData() {
+  if (!db) return;
+  
+  const tbody = document.getElementById('participants-table');
+  tbody.innerHTML = '<tr><td colspan="7" class="loading">Loading...</td></tr>';
+  
+  db.ref('participants').once('value')
+    .then(snapshot => {
+      allData = snapshot.val() || {};
+      renderDashboard();
+    })
+    .catch(err => {
+      tbody.innerHTML = `<tr><td colspan="7" class="error">Error: ${err.message}</td></tr>`;
+    });
+}
+
+function renderDashboard() {
+  const pids = Object.keys(allData).sort();
+  
+  // Stats
+  let totalTrials = 0;
+  let completeCount = 0;
+  const expectedTrials = 48; // 16 formal × 3 conditions
+  
+  pids.forEach(pid => {
+    const d = allData[pid];
+    const trials = d.trialData ? d.trialData.length : 0;
+    totalTrials += trials;
+    if (trials >= expectedTrials) completeCount++;
+  });
+  
+  document.getElementById('total-participants').textContent = pids.length;
+  document.getElementById('total-trials').textContent = totalTrials;
+  document.getElementById('complete-count').textContent = completeCount;
+  
+  // Table
+  const tbody = document.getElementById('participants-table');
+  tbody.innerHTML = '';
+  
+  if (pids.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:#636e72;text-align:center;padding:20px;">No data yet. Waiting for participants...</td></tr>';
+    return;
+  }
+  
+  pids.forEach(pid => {
+    const d = allData[pid];
+    const p = d.participant || {};
+    const trials = d.trialData ? d.trialData.length : 0;
+    const isComplete = trials >= expectedTrials;
+    const uploaded = d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : '—';
+    
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${pid}</strong></td>
+      <td>Group ${p.counterbalanceGroup || '?'}</td>
+      <td>${p.hand || '?'}</td>
+      <td>${trials} / ${expectedTrials}</td>
+      <td class="${isComplete ? 'status-ok' : 'status-partial'}">${isComplete ? '✅ Complete' : '⚠️ Partial'}</td>
+      <td style="font-size:11px;">${uploaded}</td>
+      <td>
+        <button class="btn btn-sm btn-outline" onclick="downloadOneJSON('${pid}')">JSON</button>
+        <button class="btn btn-sm btn-outline" onclick="downloadOneCSV('${pid}')">CSV</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ===================== DOWNLOAD FUNCTIONS =====================
+
+function downloadOneJSON(pid) {
+  const d = allData[pid];
+  if (!d) return;
+  downloadFile(`study_data_${pid}.json`, JSON.stringify(d, null, 2), 'application/json');
+}
+
+function downloadOneCSV(pid) {
+  const d = allData[pid];
+  if (!d || !d.trialData || d.trialData.length === 0) return;
+  const csv = trialsToCSV(d.trialData);
+  downloadFile(`trial_data_${pid}.csv`, csv, 'text/csv');
+}
+
+function downloadAllJSON() {
+  const pids = Object.keys(allData).sort();
+  if (pids.length === 0) { alert('No data to download.'); return; }
+  
+  // Download as single JSON with all participants
+  downloadFile('all_study_data.json', JSON.stringify(allData, null, 2), 'application/json');
+}
+
+function downloadAllCSV() {
+  const pids = Object.keys(allData).sort();
+  if (pids.length === 0) { alert('No data to download.'); return; }
+  
+  // Merge all trial data into one CSV
+  let allTrials = [];
+  pids.forEach(pid => {
+    const d = allData[pid];
+    if (d.trialData) allTrials = allTrials.concat(d.trialData);
+  });
+  
+  if (allTrials.length === 0) { alert('No trial data found.'); return; }
+  
+  const csv = trialsToCSV(allTrials);
+  downloadFile('all_trial_data.csv', csv, 'text/csv');
+}
+
+function trialsToCSV(trials) {
+  // Exclude gesturePath (raw array), keep everything else
+  const headers = Object.keys(trials[0]).filter(k => k !== 'gesturePath');
+  let csv = headers.join(',') + '\n';
+  trials.forEach(row => {
+    csv += headers.map(h => {
+      let val = row[h];
+      if (val === undefined || val === null) val = '';
+      if (typeof val === 'string' && val.includes(',')) val = `"${val}"`;
+      return val;
+    }).join(',') + '\n';
+  });
+  return csv;
+}
+
+function downloadFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ===================== AUTO-LOAD SAVED URL =====================
+window.addEventListener('DOMContentLoaded', () => {
+  try {
+    const saved = localStorage.getItem('firebaseURL');
+    if (saved) {
+      document.getElementById('db-url').value = saved;
+    }
+  } catch(_) {}
+});
+</script>
+</body>
+</html>
