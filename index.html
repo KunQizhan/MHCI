@@ -303,6 +303,7 @@ let state = {
   menuVisible: false,
   currentSector: -1,
   sectorCrossings: 0,
+  feedbackActive: false,    // Guard: prevent input during feedback display
   // Data
   allTrialData: [],
   questionnaireData: {},
@@ -599,6 +600,7 @@ function setupTapGrid() {
 
 function onTapButton(e) {
   e.preventDefault();
+  if (state.feedbackActive) return;  // Ignore taps during feedback
   const idx = parseInt(e.currentTarget.dataset.idx);
   const targetIdx = state.trials[state.trialIdx];
   const endTime = performance.now();
@@ -660,7 +662,7 @@ function getRadiusPx() {
 
 function onMMPointerDown(e) {
   e.preventDefault();
-  if (state.gestureActive) return;
+  if (state.gestureActive || state.feedbackActive) return;
   
   // Capture pointer
   e.target.setPointerCapture(e.pointerId);
@@ -989,6 +991,7 @@ function overlay_clearLabels() {
    FEEDBACK & TRIAL RECORDING
    ================================================================ */
 function showFeedback(success, msg, type) {
+  state.feedbackActive = true;  // Block input during feedback
   const overlay = document.getElementById('feedback-overlay');
   const msgEl = document.getElementById('feedback-msg');
   
@@ -998,6 +1001,7 @@ function showFeedback(success, msg, type) {
   
   setTimeout(() => {
     overlay.style.display = 'none';
+    state.feedbackActive = false;
     state.trialIdx++;
     presentTrial();
   }, CONFIG.feedbackDurationMs);
@@ -1005,6 +1009,8 @@ function showFeedback(success, msg, type) {
 
 function recordTrial(data) {
   const targetIdx = state.trials[state.trialIdx];
+  // Safety: skip if trialIdx is out of bounds (shouldn't happen with feedbackActive guard)
+  if (targetIdx === undefined) { console.warn('recordTrial: targetIdx undefined, skipping'); return; }
   const rMm = state.currentCondition === 'baseline_tap' ? 0
     : state.currentCondition === 'marking_rSmall' ? CONFIG.rSmallMm : CONFIG.rLargeMm;
   
@@ -1261,10 +1267,13 @@ function uploadToFirebase() {
     uploadedAt: new Date().toISOString(),
   };
   
+  // Firebase rejects undefined values — JSON round-trip strips them
+  const sanitized = JSON.parse(JSON.stringify(exportData));
+  
   const db = firebase.database();
   const ref = db.ref('participants/' + state.pid);
   
-  ref.set(exportData)
+  ref.set(sanitized)
     .then(() => {
       statusEl.innerHTML = '<span style="color:#00b894;">✅ Data uploaded successfully! You can close this page.</span>';
     })
